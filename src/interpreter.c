@@ -20,6 +20,17 @@ static char* tokenName(Token token) {
     return name;
 }
 
+int isTruthy(Value value)
+{
+    if (value.type == VAL_VOID)
+        return 0;
+
+    if (value.type == VAL_BOOL)
+        return value.boolean;
+
+    return 1;
+}
+
 static Value stringVal(const char* start, int length) {
     Value v;
     v.type = VAL_STRING;
@@ -411,6 +422,17 @@ static Value evaluate(Expr* expr) {
             free(rootName);
             return newValue;
         }
+
+        case EXPR_LOGICAL: {
+            Value left = evaluate(expr->logical.left);
+            // Short-circuit: && stops on first falsy, || stops on first truthy
+            if (expr->logical.operator.type == TOKEN_AND) {
+                if (!left.boolean) return boolVal(0);
+            } else { // TOKEN_OR
+                if (left.boolean) return boolVal(1);
+            }
+            return evaluate(expr->logical.right);
+        }
     }
 
     return voidVal();
@@ -486,6 +508,37 @@ static void execute(Stmt* stmt)
             Environment newEnv;
             initEnvironment(&newEnv, environment);
             executeBlock(stmt->block.statements, stmt->block.count, &newEnv);
+            break;
+        }
+        case STMT_IF:
+        {
+            Value condition = evaluate(stmt->ifStmt.condition);
+
+            if (isTruthy(condition))
+            {
+                execute(stmt->ifStmt.thenBranch);
+            }
+            else if (stmt->ifStmt.elseBranch != NULL)
+            {
+                execute(stmt->ifStmt.elseBranch);
+            }
+
+            break;
+        }
+
+        case STMT_IF_NOT:
+        {
+            Value condition = evaluate(stmt->ifStmt.condition);
+
+            if (!isTruthy(condition))
+            {
+                execute(stmt->ifStmt.thenBranch);
+            }
+            else if (stmt->ifStmt.elseBranch != NULL)
+            {
+                execute(stmt->ifStmt.elseBranch);
+            }
+
             break;
         }
     }

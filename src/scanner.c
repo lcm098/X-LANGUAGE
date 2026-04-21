@@ -341,6 +341,9 @@ Token scanToken()
         case '*': return makeToken(TOKEN_STAR);
         case '%': return makeToken(TOKEN_PERCENT);
 
+        case '&': return match('&') ? makeToken(TOKEN_AND) : makeToken(TOKEN_ERROR);
+        case '|': return match('|') ? makeToken(TOKEN_OR)  : makeToken(TOKEN_ERROR);
+
         case '!':
             return makeToken(
                 match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG

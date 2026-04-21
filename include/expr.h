@@ -16,7 +16,7 @@ typedef enum {
     EXPR_HASHMAP,
     EXPR_INDEX,
     EXPR_INDEX_ASSIGN,
-
+    EXPR_LOGICAL
 
 } ExprType;
 
@@ -89,6 +89,12 @@ typedef struct Expr {
             struct Expr* index;
             struct Expr* value;
         } index_assign;
+
+        struct {
+            struct Expr* left;
+            Token operator;
+            struct Expr* right;
+        } logical;
     };
 } Expr;
 

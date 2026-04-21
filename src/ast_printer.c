@@ -135,5 +135,13 @@ void printExpr(Expr* expr)
             printExpr(expr->index_assign.value);
             printf(")");
             break;
+
+        case EXPR_LOGICAL:
+            printf("(%.*s ", expr->logical.operator.length, expr->logical.operator.start);
+            printExpr(expr->logical.left);
+            printf(" ");
+            printExpr(expr->logical.right);
+            printf(")");
+            break;
     }
 }

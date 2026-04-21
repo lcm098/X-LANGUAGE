@@ -4,11 +4,15 @@
 
 
 static Expr* expression();
+static Expr* assignment();
+static Expr* logic_or();
+static Expr* logic_and();
 static Expr* equality();
 static Expr* comparison();
 static Expr* term();
 static Expr* factor();
 static Expr* unary();
+static Expr* postfix();
 static Expr* primary();
 static Expr* variableExpr(Token name);
 static Stmt* block();
@@ -40,7 +44,6 @@ static bool match(TokenType type)
     return true;
 }
 
-
 static void error(const char* message)
 {
     printf("Parser error: %s\n", message);
@@ -52,44 +55,40 @@ static Expr* literalExpr(const char* value, int length, TokenType type) {
     expr->type = EXPR_LITERAL;
     expr->literal.value = value;
     expr->literal.length = length;
-    expr->literal.type = type; 
+    expr->literal.type = type;
     return expr;
 }
 
 static Expr* groupingExpr(Expr* expression)
 {
     Expr* expr = malloc(sizeof(Expr));
-
     expr->type = EXPR_GROUPING;
     expr->grouping.expression = expression;
-
     return expr;
 }
 
 static Expr* unaryExpr(Token operator, Expr* right)
 {
     Expr* expr = malloc(sizeof(Expr));
-
     expr->type = EXPR_UNARY;
     expr->unary.operator = operator;
     expr->unary.right = right;
-
     return expr;
 }
 
-static Expr* binaryExpr(Expr* left,
-                        Token operator,
-                        Expr* right)
+static Expr* binaryExpr(Expr* left, Token operator, Expr* right)
 {
     Expr* expr = malloc(sizeof(Expr));
-
     expr->type = EXPR_BINARY;
     expr->binary.left = left;
     expr->binary.operator = operator;
     expr->binary.right = right;
-
     return expr;
 }
+
+// --- Precedence chain (low → high) ---
+// expression → assignment → logic_or → logic_and → equality
+// → comparison → term → factor → unary → postfix → primary
 
 static Expr* postfix() {
     Expr* expr = primary();
@@ -107,7 +106,7 @@ static Expr* postfix() {
                    (match(TOKEN_PLUS_PLUS) || match(TOKEN_MINUS_MINUS))) {
             Expr* post = malloc(sizeof(Expr));
             post->type = EXPR_POSTFIX;
-            post->postfix.operator = previous;
+            post->postfix.operator = previous; // FIX: 'previous' is a variable, not a function call
             post->postfix.name = expr->variable.name;
             return post;
         } else {
@@ -121,12 +120,12 @@ static Expr* unary() {
     if (match(TOKEN_PLUS_PLUS) || match(TOKEN_MINUS_MINUS)) {
         Expr* expr = malloc(sizeof(Expr));
         expr->type = EXPR_PREFIX;
-        expr->prefix.operator = previous;
+        expr->prefix.operator = previous; // FIX: variable, not function call
         expr->prefix.name = consume(TOKEN_IDENTIFIER, "Expect variable name.");
         return expr;
     }
     if (match(TOKEN_BANG) || match(TOKEN_MINUS)) {
-        Token operator = previous;
+        Token operator = previous; // FIX: variable, not function call
         Expr* right = unary();
         return unaryExpr(operator, right);
     }
@@ -141,12 +140,9 @@ static Expr* factor()
            match(TOKEN_SLASH) ||
            match(TOKEN_PERCENT))
     {
-        Token operator = previous;
+        Token operator = previous; // FIX: variable, not function call
         Expr* right = unary();
-
-        expr = binaryExpr(expr,
-                          operator,
-                          right);
+        expr = binaryExpr(expr, operator, right);
     }
 
     return expr;
@@ -156,15 +152,11 @@ static Expr* term()
 {
     Expr* expr = factor();
 
-    while (match(TOKEN_PLUS) ||
-           match(TOKEN_MINUS))
+    while (match(TOKEN_PLUS) || match(TOKEN_MINUS))
     {
-        Token operator = previous;
+        Token operator = previous; // FIX: variable, not function call
         Expr* right = factor();
-
-        expr = binaryExpr(expr,
-                          operator,
-                          right);
+        expr = binaryExpr(expr, operator, right);
     }
 
     return expr;
@@ -179,12 +171,9 @@ static Expr* comparison()
            match(TOKEN_LESS) ||
            match(TOKEN_LESS_EQUAL))
     {
-        Token operator = previous;
+        Token operator = previous; // FIX: variable, not function call
         Expr* right = term();
-
-        expr = binaryExpr(expr,
-                          operator,
-                          right);
+        expr = binaryExpr(expr, operator, right);
     }
 
     return expr;
@@ -196,10 +185,49 @@ static Expr* equality()
 
     while (match(TOKEN_BANG_EQUAL) || match(TOKEN_EQUAL_EQUAL))
     {
-        Token operator = previous;
+        Token operator = previous; // FIX: variable, not function call
         Expr* right = comparison();
+        expr = binaryExpr(expr, operator, right);
+    }
 
-        expr = binaryExpr(expr,operator,right);
+    return expr;
+}
+
+static Expr* logic_and()
+{
+    Expr* expr = equality();
+
+    while (match(TOKEN_AND))
+    {
+        Token operator = previous; // FIX: variable, not function call
+        Expr* right = equality();
+
+        Expr* newExpr = malloc(sizeof(Expr));
+        newExpr->type = EXPR_LOGICAL;
+        newExpr->logical.left     = expr;
+        newExpr->logical.operator = operator;
+        newExpr->logical.right    = right;
+        expr = newExpr;
+    }
+
+    return expr;
+}
+
+static Expr* logic_or()
+{
+    Expr* expr = logic_and();
+
+    while (match(TOKEN_OR))
+    {
+        Token operator = previous; // FIX: variable, not function call
+        Expr* right = logic_and();
+
+        Expr* newExpr = malloc(sizeof(Expr));
+        newExpr->type = EXPR_LOGICAL;
+        newExpr->logical.left     = expr;
+        newExpr->logical.operator = operator;
+        newExpr->logical.right    = right;
+        expr = newExpr;
     }
 
     return expr;
@@ -211,9 +239,7 @@ static Expr* ExpressionVarDeclaration()
     Expr* initializer = NULL;
 
     if (match(TOKEN_EQUAL))
-    {
         initializer = expression();
-    }
 
     Expr* expr = malloc(sizeof(Expr));
     expr->type = EXPR_VAR;
@@ -224,15 +250,15 @@ static Expr* ExpressionVarDeclaration()
 
 static Expr* primary()
 {
-    if (match(TOKEN_NUMBER)) 
+    if (match(TOKEN_NUMBER))
         return literalExpr(previous.start, previous.length, TOKEN_NUMBER);
-    
-    if (match(TOKEN_STRING)) 
+
+    if (match(TOKEN_STRING))
         return literalExpr(previous.start, previous.length, TOKEN_STRING);
 
-    if (match(TOKEN_TRUE))   return literalExpr("true", 4, TOKEN_TRUE);
-    if (match(TOKEN_FALSE))  return literalExpr("false", 5, TOKEN_FALSE);
-    if (match(TOKEN_VOID))    return literalExpr("void", 3, TOKEN_VOID);
+    if (match(TOKEN_TRUE))  return literalExpr("true",  4, TOKEN_TRUE);
+    if (match(TOKEN_FALSE)) return literalExpr("false", 5, TOKEN_FALSE);
+    if (match(TOKEN_VOID))  return literalExpr("void",  4, TOKEN_VOID);
 
     if (match(TOKEN_LEFT_PAREN)) {
         Expr* expr = expression();
@@ -241,18 +267,15 @@ static Expr* primary()
     }
 
     if (match(TOKEN_IDENTIFIER))
-    {
         return variableExpr(previous);
-    }
 
-    if(match(TOKEN_VAR)) {
+    if (match(TOKEN_VAR))
         return ExpressionVarDeclaration();
-    }
 
     if (match(TOKEN_VECTOR)) {
         consume(TOKEN_LEFT_BRACKET, "Expect '[' after 'vector'.");
-        
-        struct Expr** items = NULL;
+
+        Expr** items = NULL;
         int count = 0;
 
         if (!check(TOKEN_RIGHT_BRACKET)) {
@@ -266,11 +289,11 @@ static Expr* primary()
 
         Expr* expr = malloc(sizeof(Expr));
         expr->type = EXPR_VECTOR;
-        expr->vec.items = items;
+        expr->vec.items = (struct Expr**)items;
         expr->vec.count = count;
         return expr;
     }
-    
+
     if (match(TOKEN_HASHMAP)) {
         consume(TOKEN_LEFT_BRACE, "Expect '{' after 'hashmap'.");
 
@@ -293,8 +316,8 @@ static Expr* primary()
 
         Expr* expr = malloc(sizeof(Expr));
         expr->type = EXPR_HASHMAP;
-        expr->hashmap.keys   = keys;
-        expr->hashmap.values = values;
+        expr->hashmap.keys   = (struct Expr**)keys;
+        expr->hashmap.values = (struct Expr**)values;
         expr->hashmap.count  = count;
         return expr;
     }
@@ -305,17 +328,14 @@ static Expr* primary()
 
 static Expr* variableExpr(Token name) {
     Expr* expr = malloc(sizeof(Expr));
-    if (expr == NULL) {
-        fprintf(stderr, "Out of memory\n");
-        exit(1);
-    }
+    if (expr == NULL) { fprintf(stderr, "Out of memory\n"); exit(1); }
     expr->type = EXPR_VARIABLE;
     expr->variable.name = name;
     return expr;
 }
 
 static Expr* assignment() {
-    Expr* expr = equality();
+    Expr* expr = logic_or(); // FIX: was equality(), must flow through logic_or → logic_and
 
     if (match(TOKEN_EQUAL)) {
         Expr* value = assignment();
@@ -324,7 +344,7 @@ static Expr* assignment() {
             Token name = expr->variable.name;
             Expr* assign = malloc(sizeof(Expr));
             assign->type = EXPR_ASSIGN;
-            assign->assign.name = name;
+            assign->assign.name  = name;
             assign->assign.value = value;
             return assign;
         }
@@ -353,69 +373,54 @@ static Token consume(TokenType type, const char* message) {
         advance();
         return previous;
     }
-
     error(message);
-    return previous; 
+    return previous;
 }
 
 static Stmt* printStmt(Expr* expression)
 {
     Stmt* stmt = malloc(sizeof(Stmt));
-
     stmt->type = STMT_PRINT;
     stmt->print.expression = expression;
-
     return stmt;
 }
 
 static Stmt* exprStmt(Expr* expression)
 {
     Stmt* stmt = malloc(sizeof(Stmt));
-
     stmt->type = STMT_EXPR;
     stmt->expr.expression = expression;
-
     return stmt;
 }
 
 static Stmt* expressionStatement()
 {
     Expr* expr = expression();
-
     consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
-
     return exprStmt(expr);
 }
 
 static Stmt* printStatement()
 {
     Expr* value = expression();
-
-    consume(TOKEN_SEMICOLON,
-            "Expect ';' after value.");
-
+    consume(TOKEN_SEMICOLON, "Expect ';' after value.");
     return printStmt(value);
 }
 
-
 static Stmt* varDeclaration()
 {
-    Token name = consume(TOKEN_IDENTIFIER,"Expect variable name.");
+    Token name = consume(TOKEN_IDENTIFIER, "Expect variable name.");
     Expr* initializer = NULL;
 
-
     if (match(TOKEN_EQUAL))
-    {
         initializer = expression();
-    }
 
-    consume(TOKEN_SEMICOLON,"Expect ';' after variable.");
-    Stmt* stmt =malloc(sizeof(Stmt));
+    consume(TOKEN_SEMICOLON, "Expect ';' after variable.");
+
+    Stmt* stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_VAR;
-
     stmt->var.name = name;
     stmt->var.initializer = initializer;
-
     return stmt;
 }
 
@@ -430,15 +435,66 @@ static Stmt* block()
         statements[count++] = statement();
     }
 
-    consume(TOKEN_RIGHT_BRACE,"Expect '}' after block.");
-    Stmt* stmt = malloc(sizeof(Stmt));
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after block.");
 
+    Stmt* stmt = malloc(sizeof(Stmt));
     stmt->type = STMT_BLOCK;
     stmt->block.statements = statements;
     stmt->block.count = count;
-
     return stmt;
 }
+
+static Stmt* ifStatement()
+{
+    consume(TOKEN_LEFT_PAREN,  "Expect '(' after 'if'.");
+    Expr* condition = expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+    Stmt* thenBranch = statement();
+    Stmt* elseBranch = NULL;
+
+    if (match(TOKEN_ELSE))
+    {
+        // FIX: 'else if' — after consuming 'else', if next token is 'if',
+        // just call statement() which will match TOKEN_IF → ifStatement(),
+        // producing a chained if/else-if/else naturally.
+        elseBranch = statement();
+    }
+
+    Stmt* stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_IF;
+    stmt->ifStmt.condition  = condition;
+    stmt->ifStmt.thenBranch = thenBranch;
+    stmt->ifStmt.elseBranch = elseBranch;
+    return stmt;
+}
+
+
+static Stmt* ifNotStatement()
+{
+    consume(TOKEN_LEFT_PAREN,  "Expect '(' after 'if'.");
+    Expr* condition = expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+
+    Stmt* thenBranch = statement();
+    Stmt* elseBranch = NULL;
+
+    if (match(TOKEN_ELSE))
+    {
+        // FIX: 'else if' — after consuming 'else', if next token is 'if',
+        // just call statement() which will match TOKEN_IF → ifStatement(),
+        // producing a chained if/else-if/else naturally.
+        elseBranch = statement();
+    }
+
+    Stmt* stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_IF_NOT;
+    stmt->ifNotStmt.condition  = condition;
+    stmt->ifNotStmt.thenBranch = thenBranch;
+    stmt->ifNotStmt.elseBranch = elseBranch;
+    return stmt;
+}
+
 
 static Stmt* statement()
 {
@@ -451,6 +507,11 @@ static Stmt* statement()
     if (match(TOKEN_LEFT_BRACE))
         return block();
 
+    if (match(TOKEN_IF))
+        return ifStatement();
+
+    if (match(TOKEN_IF_NOT))
+        return ifNotStatement();
 
     return expressionStatement();
 }
@@ -470,7 +531,6 @@ void initParser() {
 Stmt* parseNext() {
     return statement();
 }
-
 
 Stmt* parse()
 {

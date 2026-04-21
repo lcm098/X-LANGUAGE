@@ -8,7 +8,9 @@ typedef enum {
     STMT_PRINT,
     STMT_EXPR,
     STMT_VAR,
-    STMT_BLOCK
+    STMT_BLOCK,
+    STMT_IF,
+    STMT_IF_NOT
 
 } StmtType;
 
@@ -35,6 +37,18 @@ typedef struct Stmt {
             struct Stmt** statements;
             int count;
         } block;
+
+        struct {
+            Expr* condition;
+            struct Stmt* thenBranch;
+            struct Stmt* elseBranch;
+        } ifStmt;
+
+        struct {
+            Expr* condition;
+            struct Stmt* thenBranch;
+            struct Stmt* elseBranch;
+        } ifNotStmt;
 
     };
 
