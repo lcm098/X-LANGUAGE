@@ -214,7 +214,15 @@ static TokenType identifierType()
         case 'r': return checkKeyword(1, 5, "eturn", TOKEN_RETURN);
         case 's': return checkKeyword(1, 5, "witch", TOKEN_SWITCH);
         case 't': return checkKeyword(1, 3, "rue", TOKEN_TRUE);
-        case 'v': return checkKeyword(1, 3, "oid", TOKEN_VOID);
+        case 'v':
+            if (scanner.current - scanner.start > 1) {
+                switch (scanner.start[1]) {
+                    case 'a': return checkKeyword(2, 1, "r", TOKEN_VAR);
+                    case 'o': return checkKeyword(2, 2, "id", TOKEN_VOID);
+                }
+            }
+            break;
+
         case 'w': return checkKeyword(1, 4, "hile", TOKEN_WHILE);
     }
 
@@ -324,8 +332,8 @@ Token scanToken()
         case ',': return makeToken(TOKEN_COMMA);
         case '.': return makeToken(TOKEN_DOT);
 
-        case '-': return makeToken(TOKEN_MINUS);
-        case '+': return makeToken(TOKEN_PLUS);
+        case '+': return match('+') ? makeToken(TOKEN_PLUS_PLUS)  : makeToken(TOKEN_PLUS);
+        case '-': return match('-') ? makeToken(TOKEN_MINUS_MINUS) : makeToken(TOKEN_MINUS);
         case '/': return makeToken(TOKEN_SLASH);
         case '*': return makeToken(TOKEN_STAR);
         case '%': return makeToken(TOKEN_PERCENT);

@@ -7,6 +7,10 @@
 #include "../include/environment.h"
 
 Environment globals;
+Environment* environment = &globals;
+
+// FIX: 'execute()' calls 'executeBlock()' before its definition — forward-declare it
+static void executeBlock(Stmt** statements, int count, Environment* newEnv);
 
 static char* tokenName(Token token) {
     char* name = malloc(token.length + 1);
@@ -191,16 +195,46 @@ static Value evaluate(Expr* expr) {
         case EXPR_BINARY:   return evalBinary(expr);
         case EXPR_VARIABLE: {
             char* name = tokenName(expr->variable.name);
-            Value v = getVariable(&globals, name);
+            Value v = getVariable(environment, name);
             free(name);
             return v;
         }
         case EXPR_ASSIGN: {
             Value value = evaluate(expr->assign.value);
             char* name = tokenName(expr->assign.name);
-            assignVariable(&globals, name, value);
+            assignVariable(environment, name, value);
             free(name);
             return value;
+        }
+        case EXPR_VAR: {
+            Value value = voidVal();
+
+            if (expr->var_expr.initializer != NULL) {
+                value = evaluate(expr->var_expr.initializer);
+            }
+
+            char* name = tokenName(expr->var_expr.name);
+            defineVariable(environment, name, value);
+            free(name);
+            return boolVal(1);
+        }
+
+        case EXPR_PREFIX: {
+            char* name = tokenName(expr->prefix.name);
+            Value val = getVariable(environment, name);
+            double newVal = val.number + (expr->prefix.operator.type == TOKEN_PLUS_PLUS ? 1 : -1);
+            Value result = numberVal(newVal);
+            assignVariable(environment, name, result);
+            free(name);
+            return result; // returns new value
+        }
+        case EXPR_POSTFIX: {
+            char* name = tokenName(expr->postfix.name);
+            Value old = getVariable(environment, name);
+            double newVal = old.number + (expr->postfix.operator.type == TOKEN_PLUS_PLUS ? 1 : -1);
+            assignVariable(environment, name, numberVal(newVal));
+            free(name);
+            return old; // returns original value
         }
     }
 
@@ -243,7 +277,7 @@ static void execute(Stmt* stmt)
                 value = evaluate(stmt->var.initializer);
 
             char* name = tokenName(stmt->var.name);
-            defineVariable(&globals, name, value);
+            defineVariable(environment, name, value);
             free(name);
             break;
         }
@@ -253,13 +287,31 @@ static void execute(Stmt* stmt)
             evaluate(stmt->expr.expression);
             break;
         }
+        case STMT_BLOCK:
+        {
+            Environment newEnv;
+            initEnvironment(&newEnv, environment);
+            executeBlock(stmt->block.statements, stmt->block.count, &newEnv);
+            break;
+        }
     }
+}
+
+static void executeBlock(Stmt** statements, int count, Environment* newEnv)
+{
+    Environment* previous = environment;
+    environment = newEnv;
+    for (int i = 0; i < count; i++)
+    {
+        execute(statements[i]);
+    }
+    environment = previous;
 }
 
 void interpret(Stmt* stmt) {
     static int initialized = 0;
     if (!initialized) {
-        initEnvironment(&globals);
+        initEnvironment(&globals, NULL);
         initialized = 1;
     }
     execute(stmt);

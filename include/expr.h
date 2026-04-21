@@ -8,7 +8,11 @@ typedef enum {
     EXPR_UNARY,
     EXPR_BINARY,
     EXPR_VARIABLE,
-    EXPR_ASSIGN
+    EXPR_ASSIGN,
+    EXPR_VAR,
+    EXPR_PREFIX,
+    EXPR_POSTFIX,
+
 } ExprType;
 
 typedef struct Expr {
@@ -44,6 +48,20 @@ typedef struct Expr {
             struct Expr* value;
         } assign;
 
+        struct {
+            Token name;
+            struct Expr* initializer;
+        } var_expr;
+
+        struct {
+            Token operator;
+            Token name;
+        } prefix;
+
+        struct {
+            Token operator;
+            Token name;
+        } postfix;
     };
 } Expr;
 

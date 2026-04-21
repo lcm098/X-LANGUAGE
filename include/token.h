@@ -28,6 +28,8 @@ typedef enum {
     TOKEN_GREATER_EQUAL,
     TOKEN_LESS,
     TOKEN_LESS_EQUAL,
+    TOKEN_PLUS_PLUS,
+    TOKEN_MINUS_MINUS,
 
     // literals
 
@@ -66,6 +68,7 @@ typedef enum {
     TOKEN_BREAK,
     TOKEN_PASS,
     TOKEN_CONTINUE,
+    TOKEN_VAR,
 
     TOKEN_ERROR,
     

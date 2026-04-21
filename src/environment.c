@@ -5,8 +5,9 @@
 
 #include "../include/environment.h"
 
-void initEnvironment(Environment* env) {
+void initEnvironment(Environment* env, Environment* enclosing) {
     env->head = NULL;
+    env->enclosing = enclosing;
 }
 
 void defineVariable(Environment* env, const char* name, Value value) {
@@ -17,26 +18,44 @@ void defineVariable(Environment* env, const char* name, Value value) {
     env->head = entry;
 }
 
+// FIX: parameter was 'char*' but header declares 'const char*' — made consistent
 Value getVariable(Environment* env, const char* name) {
-    EnvEntry* current = env->head;
-    while (current != NULL) {
-        if (strcmp(current->name, name) == 0) {
-            return current->value;
+    Environment* currentEnv = env;
+    while (currentEnv != NULL)
+    {
+        EnvEntry* entry = currentEnv->head;
+        while (entry != NULL)
+        {
+            if (strcmp(entry->name, name) == 0)
+            {
+                return entry->value;
+            }
+            entry = entry->next;
         }
-        current = current->next;
+        currentEnv = currentEnv->enclosing;
     }
+
     printf("Runtime Error: Undefined variable '%s'\n", name);
     return voidVal();
 }
 
 void assignVariable(Environment* env, const char* name, Value value) {
-    EnvEntry* current = env->head;
-    while (current != NULL) {
-        if (strcmp(current->name, name) == 0) {
-            current->value = value;
-            return;
+    Environment* currentEnv = env;
+
+    while (currentEnv != NULL)
+    {
+        EnvEntry* entry = currentEnv->head;
+        while (entry != NULL)
+        {
+            if (strcmp(entry->name, name) == 0)
+            {
+                entry->value = value;
+                return;
+            }
+            entry = entry->next;
         }
-        current = current->next;
+        currentEnv = currentEnv->enclosing;
     }
+
     printf("Runtime Error: Undefined variable '%s'\n", name);
 }

@@ -76,5 +76,26 @@ void printExpr(Expr* expr)
             printf(")");
             break;
 
+        case EXPR_VAR:
+            printf("(var %.*s", expr->var_expr.name.length, expr->var_expr.name.start);
+            if (expr->var_expr.initializer != NULL) {
+                printf(" ");
+                printExpr(expr->var_expr.initializer);
+            }
+            printf(")");
+            break;
+
+        case EXPR_PREFIX:
+            printf("(%.*s %.*s)",
+                expr->prefix.operator.length, expr->prefix.operator.start,
+                expr->prefix.name.length,     expr->prefix.name.start);
+            break;
+
+        case EXPR_POSTFIX:
+            printf("(%.*s %.*s)",
+                expr->postfix.name.length,     expr->postfix.name.start,
+                expr->postfix.operator.length, expr->postfix.operator.start);
+            break;
+
     }
 }

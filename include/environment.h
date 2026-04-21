@@ -10,11 +10,13 @@ typedef struct EnvEntry {
     struct EnvEntry* next;
 } EnvEntry;
 
-typedef struct {
+
+typedef struct Environment {
     EnvEntry* head;
+    struct Environment* enclosing;
 } Environment;
 
-void initEnvironment(Environment* env);
+void initEnvironment(Environment* env, Environment* enclosing);
 void defineVariable(Environment* env, const char* name, Value value);
 Value getVariable(Environment* env, const char* name);
 void assignVariable(Environment* env, const char* name, Value value);

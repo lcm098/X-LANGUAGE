@@ -11,6 +11,11 @@ static Expr* factor();
 static Expr* unary();
 static Expr* primary();
 static Expr* variableExpr(Token name);
+static Stmt* block();
+static Token consume(TokenType type, const char* message);
+static Stmt* statement();
+static bool  isAtEnd();
+
 
 static Token current;
 static Token previous;
@@ -86,17 +91,34 @@ static Expr* binaryExpr(Expr* left,
     return expr;
 }
 
-static Expr* unary()
-{
-    if (match(TOKEN_BANG) || match(TOKEN_MINUS))
-    {
+static Expr* postfix() {
+    Expr* expr = primary();
+
+    if (expr->type == EXPR_VARIABLE &&
+        (match(TOKEN_PLUS_PLUS) || match(TOKEN_MINUS_MINUS))) {
+        Expr* post = malloc(sizeof(Expr));
+        post->type = EXPR_POSTFIX;
+        post->postfix.operator = previous;
+        post->postfix.name = expr->variable.name;
+        return post;
+    }
+    return expr;
+}
+
+static Expr* unary() {
+    if (match(TOKEN_PLUS_PLUS) || match(TOKEN_MINUS_MINUS)) {
+        Expr* expr = malloc(sizeof(Expr));
+        expr->type = EXPR_PREFIX;
+        expr->prefix.operator = previous;
+        expr->prefix.name = consume(TOKEN_IDENTIFIER, "Expect variable name.");
+        return expr;
+    }
+    if (match(TOKEN_BANG) || match(TOKEN_MINUS)) {
         Token operator = previous;
         Expr* right = unary();
-
         return unaryExpr(operator, right);
     }
-
-    return primary();
+    return postfix();
 }
 
 static Expr* factor()
@@ -171,6 +193,22 @@ static Expr* equality()
     return expr;
 }
 
+static Expr* ExpressionVarDeclaration()
+{
+    Token name = consume(TOKEN_IDENTIFIER, "Expect variable name.");
+    Expr* initializer = NULL;
+
+    if (match(TOKEN_EQUAL))
+    {
+        initializer = expression();
+    }
+
+    Expr* expr = malloc(sizeof(Expr));
+    expr->type = EXPR_VAR;
+    expr->var_expr.name = name;
+    expr->var_expr.initializer = initializer;
+    return expr;
+}
 
 static Expr* primary()
 {
@@ -193,6 +231,10 @@ static Expr* primary()
     if (match(TOKEN_IDENTIFIER))
     {
         return variableExpr(previous);
+    }
+
+    if(match(TOKEN_VAR)) {
+        return ExpressionVarDeclaration();
     }
 
     error("Expect expression.");
@@ -283,10 +325,10 @@ static Stmt* printStatement()
     return printStmt(value);
 }
 
+
 static Stmt* varDeclaration()
 {
     Token name = consume(TOKEN_IDENTIFIER,"Expect variable name.");
-
     Expr* initializer = NULL;
 
 
@@ -305,6 +347,27 @@ static Stmt* varDeclaration()
     return stmt;
 }
 
+static Stmt* block()
+{
+    Stmt** statements = NULL;
+    int count = 0;
+
+    while (!check(TOKEN_RIGHT_BRACE) && !isAtEnd())
+    {
+        statements = realloc(statements, sizeof(Stmt*) * (count + 1));
+        statements[count++] = statement();
+    }
+
+    consume(TOKEN_RIGHT_BRACE,"Expect '}' after block.");
+    Stmt* stmt = malloc(sizeof(Stmt));
+
+    stmt->type = STMT_BLOCK;
+    stmt->block.statements = statements;
+    stmt->block.count = count;
+
+    return stmt;
+}
+
 static Stmt* statement()
 {
     if (match(TOKEN_PRINT))
@@ -313,7 +376,15 @@ static Stmt* statement()
     if (match(TOKEN_LET))
         return varDeclaration();
 
+    if (match(TOKEN_LEFT_BRACE))
+        return block();
+
+
     return expressionStatement();
+}
+
+static bool isAtEnd() {
+    return current.type == TOKEN_EOF;
 }
 
 bool parserAtEnd() {
@@ -334,5 +405,3 @@ Stmt* parse()
     advance();
     return statement();
 }
-
-

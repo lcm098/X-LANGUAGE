@@ -7,7 +7,8 @@ typedef enum {
 
     STMT_PRINT,
     STMT_EXPR,
-    STMT_VAR
+    STMT_VAR,
+    STMT_BLOCK
 
 } StmtType;
 
@@ -29,6 +30,11 @@ typedef struct Stmt {
             Token name;
             Expr* initializer;
         } var;
+
+        struct {
+            struct Stmt** statements;
+            int count;
+        } block;
 
     };
 
