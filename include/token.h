@@ -1,7 +1,8 @@
 #ifndef X_TOKEN_H
 #define X_TOKEN_H
 
-typedef enum {
+typedef enum
+{
 
     // single-character tokens
 
@@ -20,8 +21,9 @@ typedef enum {
     TOKEN_LEFT_BRACKET,
     TOKEN_RIGHT_BRACKET,
     TOKEN_COLON,
+    TOKEN_AT,
 
-    // one or two character tokens
+        // one or two character tokens
 
     TOKEN_BANG,
     TOKEN_BANG_EQUAL,
@@ -76,7 +78,7 @@ typedef enum {
     TOKEN_HASHMAP,
 
     TOKEN_ERROR,
-    
+
     TOKEN_EOF
 
 } TokenType;

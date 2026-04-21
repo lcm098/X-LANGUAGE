@@ -2,7 +2,10 @@
 #define X_EXPR_H
 #include "./token_struct.h"
 
-typedef enum {
+struct Stmt;
+
+typedef enum
+{
     EXPR_LITERAL,
     EXPR_GROUPING,
     EXPR_UNARY,
@@ -16,13 +19,21 @@ typedef enum {
     EXPR_HASHMAP,
     EXPR_INDEX,
     EXPR_INDEX_ASSIGN,
-    EXPR_LOGICAL
+    EXPR_LOGICAL,
+    EXPR_BLOCK,
 
 } ExprType;
 
 typedef struct Expr {
     ExprType type;
     union {
+
+        struct
+        {
+            struct Stmt **statements;
+            int count;
+        } block;
+
         struct {
             const char* value;
             int length;
