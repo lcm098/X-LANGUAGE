@@ -12,7 +12,9 @@ typedef enum
     VAL_STRING,
     VAL_VECTOR,
     VAL_HASHMAP,
-    VAL_FUNCTION
+    VAL_FUNCTION,
+    VAL_STRUCT_DEF
+
 } ValueType;
 
 struct Value;
@@ -24,6 +26,13 @@ typedef struct Value
         double number;
         int boolean;
         char *string;
+
+        struct
+        {
+            char *name;
+            struct StructFieldAST *fields;
+            int fieldCount;
+        } structDef;
 
         struct
         {

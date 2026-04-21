@@ -11,6 +11,8 @@ Environment globals;
 Environment *environment = &globals;
 static int hasReturnValue = 0;
 static Value returnValue;
+static int isBreaking = 0;
+static int isContinuing = 0;
 
 // Global tracking for jump unwinding
 static int isJumping = 0;
@@ -547,7 +549,7 @@ static Value evaluate(Expr *expr)
         Value result = voidVal();
         int count = expr->block.count;
 
-        for (int i = 0; i < count && !hasReturnValue && !isJumping; i++)
+        for (int i = 0; i < count && !hasReturnValue && !isJumping && !isBreaking && !isContinuing; i++)
         {
             Stmt *s = (Stmt *)expr->block.statements[i];
             // Implicit return: last statement, if it's a bare expression, is the value
@@ -680,7 +682,6 @@ static Value evaluate(Expr *expr)
         return result;
     }
 
-    
     case EXPR_LAMBDA:
     {
         Value func;
@@ -739,13 +740,147 @@ static void printValue(Value value)
     case VAL_FUNCTION:
         printf("<function(%d)>", value.function.paramCount);
         break;
+
+    case VAL_STRUCT_DEF:
+        printf("<struct %s blueprint>", value.structDef.name);
+        break;
     }
+}
+
+static Value instantiateStruct(Environment *env, char *structName)
+{
+    Value def = getVariable(env, structName);
+    if (def.type != VAL_STRUCT_DEF)
+    {
+        printf("Runtime Error: '%s' is not a defined struct.\n", structName);
+        return voidVal();
+    }
+
+    Value instance;
+    instance.type = VAL_HASHMAP;
+    instance.hashmap.count = def.structDef.fieldCount;
+    instance.hashmap.capacity = def.structDef.fieldCount;
+    instance.hashmap.keys = malloc(sizeof(char *) * def.structDef.fieldCount);
+    instance.hashmap.values = malloc(sizeof(Value) * def.structDef.fieldCount);
+
+    for (int i = 0; i < def.structDef.fieldCount; i++)
+    {
+        StructFieldAST *field = &def.structDef.fields[i];
+        char *fieldName = tokenName(field->fieldName);
+        instance.hashmap.keys[i] = fieldName;
+
+        if (field->typeToken.type == TOKEN_STRUCT)
+        {
+            char *innerStructName = tokenName(field->structTypeName);
+            instance.hashmap.values[i] = instantiateStruct(env, innerStructName);
+            free(innerStructName);
+        }
+        else
+        {
+            instance.hashmap.values[i] = voidVal();
+        }
+    }
+    return instance;
 }
 
 static void execute(Stmt *stmt)
 {
     switch (stmt->type)
     {
+
+    case STMT_CONTINUE:
+        isContinuing = 1;
+        break;
+
+    case STMT_BREAK:
+        isBreaking = 1;
+        break;
+
+    case STMT_SWITCH:
+    {
+        Value condVal = evaluate(stmt->switchStmt.condition);
+        int matched = 0;
+        int fallThrough = 0;
+
+        for (int i = 0; i < stmt->switchStmt.caseCount; i++)
+        {
+            SwitchCase *c = &stmt->switchStmt.cases[i];
+
+            // Check if this case matches (if we aren't already falling through)
+            if (!fallThrough)
+            {
+                for (int j = 0; j < c->matchCount; j++)
+                {
+                    Value caseVal = evaluate(c->matchValues[j]);
+                    if (valuesEqual(condVal, caseVal))
+                    {
+                        matched = 1;
+                        fallThrough = 1;
+                        break;
+                    }
+                }
+            }
+
+            // Execute statements if matched or falling through
+            if (fallThrough)
+            {
+                for (int s = 0; s < c->stmtCount; s++)
+                {
+                    if (hasReturnValue || isJumping || isBreaking || isContinuing)
+                        break;
+                    execute(c->statements[s]);
+                }
+
+                // If a break was hit inside the case, stop the switch
+                if (isBreaking)
+                {
+                    isBreaking = 0; // Clear the break flag
+                    fallThrough = 0;
+                    break; // Break out of the switch evaluation
+                }
+            }
+        }
+
+        // Execute default branch if no cases matched, OR if we fell through the last case
+        if ((!matched || fallThrough) && stmt->switchStmt.defaultBranch != NULL)
+        {
+            for (int s = 0; s < stmt->switchStmt.defaultCount; s++)
+            {
+                if (hasReturnValue || isJumping || isBreaking)
+                    break;
+                execute(stmt->switchStmt.defaultBranch[s]);
+            }
+            if (isBreaking)
+                isBreaking = 0; // Clear flag
+        }
+
+        break;
+    }
+
+    case STMT_STRUCT_DEF:
+    {
+        Value v;
+        v.type = VAL_STRUCT_DEF;
+        v.structDef.name = tokenName(stmt->structDef.name);
+        v.structDef.fields = stmt->structDef.fields;
+        v.structDef.fieldCount = stmt->structDef.fieldCount;
+        defineVariable(environment, v.structDef.name, v);
+        break;
+    }
+
+    case STMT_STRUCT_DECL:
+    {
+        char *sName = tokenName(stmt->structDecl.structName);
+        char *iName = tokenName(stmt->structDecl.instanceName);
+
+        Value instance = instantiateStruct(environment, sName);
+        defineVariable(environment, iName, instance);
+
+        free(sName);
+        free(iName);
+        break;
+    }
+
     case STMT_PRINT:
     {
         Value value = evaluate(stmt->print.expression);
@@ -815,6 +950,16 @@ static void execute(Stmt *stmt)
         while (!hasReturnValue && !isJumping && isTruthy(evaluate(stmt->whileStmt.condition)))
         {
             execute(stmt->whileStmt.body);
+            if (isBreaking)
+            {
+                isBreaking = 0;
+                break;
+            } // Catch break
+
+            if (isContinuing)
+            {
+                isContinuing = 0;
+            }
         }
         break;
     }
@@ -822,9 +967,26 @@ static void execute(Stmt *stmt)
     case STMT_DO_WHILE:
     {
         execute(stmt->doWhileStmt.body);
+        if (isBreaking)
+        {
+            isBreaking = 0;
+            break;
+        } // Catch break
+
+        if (isContinuing)
+        {
+            isContinuing = 0;
+        }
+
+
         while (!hasReturnValue && !isJumping && isTruthy(evaluate(stmt->doWhileStmt.condition)))
         {
             execute(stmt->doWhileStmt.body);
+            if (isBreaking)
+            {
+                isBreaking = 0;
+                break;
+            } // Catch break
         }
         break;
     }
@@ -850,6 +1012,17 @@ static void execute(Stmt *stmt)
 
             if (hasReturnValue || isJumping)
                 break;
+
+            if (isBreaking)
+            {
+                isBreaking = 0;
+                break;
+            }
+
+            if (isContinuing)
+            {
+                isContinuing = 0;
+            }
 
             if (stmt->forStmt.increment != NULL)
                 evaluate(stmt->forStmt.increment);
@@ -921,7 +1094,7 @@ static void executeBlock(Stmt **statements, int count, Environment *newEnv)
     environment = newEnv;
     for (int i = 0; i < count; i++)
     {
-        if (hasReturnValue || isJumping)
+        if (hasReturnValue || isJumping || isBreaking || isContinuing)
             break;
 
         execute(statements[i]);

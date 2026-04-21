@@ -77,6 +77,7 @@ typedef enum
     TOKEN_VAR,
     TOKEN_VECTOR,
     TOKEN_HASHMAP,
+    TOKEN_STRUCT,
 
     TOKEN_ERROR,
 

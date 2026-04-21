@@ -248,7 +248,17 @@ static TokenType identifierType()
     case 'r':
         return checkKeyword(1, 5, "eturn", TOKEN_RETURN);
     case 's':
-        return checkKeyword(1, 5, "witch", TOKEN_SWITCH);
+        if (scanner.current - scanner.start > 1)
+        {
+            switch (scanner.start[1])
+            {
+            case 'w':
+                return checkKeyword(2, 4, "itch", TOKEN_SWITCH);
+            case 't':
+                return checkKeyword(2, 4, "ruct", TOKEN_STRUCT);
+            }
+        }
+        break;
     case 't':
         return checkKeyword(1, 3, "rue", TOKEN_TRUE);
     case 'v':

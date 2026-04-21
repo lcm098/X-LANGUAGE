@@ -5,6 +5,21 @@
 typedef struct Expr Expr;
 #include "token_struct.h"
 
+typedef struct StructFieldAST
+{
+    Token typeToken;      // TOKEN_VAR, TOKEN_LET, or TOKEN_STRUCT
+    Token structTypeName; // Valid only if typeToken == TOKEN_STRUCT
+    Token fieldName;      // The property name
+} StructFieldAST;
+
+typedef struct SwitchCase
+{
+    struct Expr **matchValues; // Array to support stacked cases: case 1: case 2:
+    int matchCount;
+    struct Stmt **statements; // The body to execute
+    int stmtCount;
+} SwitchCase;
+
 typedef enum
 {
 
@@ -21,7 +36,12 @@ typedef enum
     STMT_RETURN,
     STMT_FUNCTION,
     STMT_LABEL,
-    STMT_JUMP
+    STMT_JUMP,
+    STMT_STRUCT_DEF,
+    STMT_STRUCT_DECL,
+    STMT_SWITCH,
+    STMT_BREAK,
+    STMT_CONTINUE
 
 } StmtType;
 
@@ -32,6 +52,28 @@ typedef struct Stmt
 
     union
     {
+
+        struct
+        {
+            struct Expr *condition;
+            SwitchCase *cases;
+            int caseCount;
+            struct Stmt **defaultBranch;
+            int defaultCount;
+        } switchStmt;
+
+        struct
+        {
+            Token name;
+            StructFieldAST *fields;
+            int fieldCount;
+        } structDef;
+
+        struct
+        {
+            Token structName;
+            Token instanceName;
+        } structDecl;
 
         struct
         {

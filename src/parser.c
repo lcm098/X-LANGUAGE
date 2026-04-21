@@ -187,6 +187,35 @@ static Expr *postfix()
             post->postfix.name = expr->variable.name;
             return post;
         }
+        else if (match(TOKEN_DOT))
+        {
+            Token prop = consume(TOKEN_IDENTIFIER, "Expect property name after '.'.");
+
+            Expr *index = malloc(sizeof(Expr));
+            index->type = EXPR_INDEX;
+            index->index_expr.object = expr;
+
+            // Generate a synthetic literal string for the property (e.g. "weapon_name")
+            Expr *literal = malloc(sizeof(Expr));
+            literal->type = EXPR_LITERAL;
+            literal->literal.type = TOKEN_STRING;
+
+            // Correct length math: Original identifier length + 2 quotes
+            int strLen = prop.length + 2;
+            char *strVal = malloc(strLen + 1); // +1 for the null terminator
+
+            strVal[0] = '"';
+            memcpy(strVal + 1, prop.start, prop.length);
+            strVal[strLen - 1] = '"';
+            strVal[strLen] = '\0';
+
+            literal->literal.value = strVal;
+            // FIX: Use the exact token length (including quotes, excluding \0)
+            literal->literal.length = strLen;
+
+            index->index_expr.index = literal;
+            expr = index;
+        }
         else
         {
             break;
@@ -1027,6 +1056,160 @@ static Stmt *jumpStatement()
     return stmt;
 }
 
+static Stmt *structDeclaration()
+{
+    if (match(TOKEN_LEFT_BRACE))
+    {
+        // Struct Definition: struct { var name; struct Weapon w; } Name;
+        StructFieldAST *fields = NULL;
+        int count = 0;
+
+        while (!check(TOKEN_RIGHT_BRACE) && !isAtEnd())
+        {
+            fields = realloc(fields, sizeof(StructFieldAST) * (count + 1));
+
+            if (match(TOKEN_VAR) || match(TOKEN_LET))
+            {
+                fields[count].typeToken = previous;
+                fields[count].fieldName = consume(TOKEN_IDENTIFIER, "Expect field name.");
+            }
+            else if (match(TOKEN_STRUCT))
+            {
+                fields[count].typeToken = previous;
+                fields[count].structTypeName = consume(TOKEN_IDENTIFIER, "Expect struct type name.");
+                fields[count].fieldName = consume(TOKEN_IDENTIFIER, "Expect field name.");
+            }
+            else
+            {
+                error("Expect 'var', 'let', or 'struct' in struct body.");
+            }
+
+            consume(TOKEN_SEMICOLON, "Expect ';' after field declaration.");
+            count++;
+        }
+
+        consume(TOKEN_RIGHT_BRACE, "Expect '}' after struct body.");
+        Token name = consume(TOKEN_IDENTIFIER, "Expect struct name.");
+        consume(TOKEN_SEMICOLON, "Expect ';' after struct definition.");
+
+        Stmt *stmt = malloc(sizeof(Stmt));
+        stmt->type = STMT_STRUCT_DEF;
+        stmt->structDef.name = name;
+        stmt->structDef.fields = fields;
+        stmt->structDef.fieldCount = count;
+        return stmt;
+    }
+    else
+    {
+        // Struct Instantiation: struct Player danishk;
+        Token structName = consume(TOKEN_IDENTIFIER, "Expect struct name.");
+        Token instanceName = consume(TOKEN_IDENTIFIER, "Expect instance name.");
+        consume(TOKEN_SEMICOLON, "Expect ';' after instance declaration.");
+
+        Stmt *stmt = malloc(sizeof(Stmt));
+        stmt->type = STMT_STRUCT_DECL;
+        stmt->structDecl.structName = structName;
+        stmt->structDecl.instanceName = instanceName;
+        return stmt;
+    }
+}
+
+static Stmt *breakStatement()
+{
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'break'.");
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_BREAK;
+    return stmt;
+}
+
+static Stmt *switchStatement()
+{
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after 'switch'.");
+    Expr *condition = expression();
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after condition.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before switch body.");
+
+    SwitchCase *cases = NULL;
+    int caseCount = 0;
+
+    Stmt **defaultBranch = NULL;
+    int defaultCount = 0;
+
+    while (!check(TOKEN_RIGHT_BRACE) && !isAtEnd())
+    {
+        if (match(TOKEN_CASE))
+        {
+            Expr **values = NULL;
+            int vCount = 0;
+
+            // Get the first case value
+            values = realloc(values, sizeof(Expr *) * (vCount + 1));
+            values[vCount++] = expression();
+            consume(TOKEN_COLON, "Expect ':' after case value.");
+
+            // Allow multiple stacked cases: case 1: case 2: ...
+            while (match(TOKEN_CASE))
+            {
+                values = realloc(values, sizeof(Expr *) * (vCount + 1));
+                values[vCount++] = expression();
+                consume(TOKEN_COLON, "Expect ':' after case value.");
+            }
+
+            // Gather statements until the next case, default, or closing brace
+            Stmt **stmts = NULL;
+            int sCount = 0;
+            while (!check(TOKEN_CASE) && !check(TOKEN_DEFAULT) && !check(TOKEN_RIGHT_BRACE) && !isAtEnd())
+            {
+                stmts = realloc(stmts, sizeof(Stmt *) * (sCount + 1));
+                stmts[sCount++] = statement();
+            }
+
+            cases = realloc(cases, sizeof(SwitchCase) * (caseCount + 1));
+            cases[caseCount].matchValues = values;
+            cases[caseCount].matchCount = vCount;
+            cases[caseCount].statements = stmts;
+            cases[caseCount].stmtCount = sCount;
+            caseCount++;
+        }
+        else if (match(TOKEN_DEFAULT))
+        {
+            consume(TOKEN_COLON, "Expect ':' after default.");
+
+            Stmt **stmts = NULL;
+            int sCount = 0;
+            while (!check(TOKEN_CASE) && !check(TOKEN_DEFAULT) && !check(TOKEN_RIGHT_BRACE) && !isAtEnd())
+            {
+                stmts = realloc(stmts, sizeof(Stmt *) * (sCount + 1));
+                stmts[sCount++] = statement();
+            }
+            defaultBranch = stmts;
+            defaultCount = sCount;
+        }
+        else
+        {
+            error("Expect 'case' or 'default' inside switch.");
+        }
+    }
+    consume(TOKEN_RIGHT_BRACE, "Expect '}' after switch body.");
+
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_SWITCH;
+    stmt->switchStmt.condition = condition;
+    stmt->switchStmt.cases = cases;
+    stmt->switchStmt.caseCount = caseCount;
+    stmt->switchStmt.defaultBranch = defaultBranch;
+    stmt->switchStmt.defaultCount = defaultCount;
+    return stmt;
+}
+
+static Stmt *continueStatement()
+{
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_CONTINUE;
+    return stmt;
+}
+
 static Stmt *statement()
 {
     if (match(TOKEN_PRINT))
@@ -1076,6 +1259,18 @@ static Stmt *statement()
 
     if (match(TOKEN_JUMP))
         return jumpStatement();
+
+    if (match(TOKEN_STRUCT))
+        return structDeclaration();
+
+    if (match(TOKEN_SWITCH))
+        return switchStatement();
+
+    if (match(TOKEN_BREAK))
+        return breakStatement();
+
+    if (match(TOKEN_CONTINUE))
+        return continueStatement();
 
     return expressionStatement();
 }
