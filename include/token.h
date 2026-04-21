@@ -1,0 +1,76 @@
+#ifndef X_TOKEN_H
+#define X_TOKEN_H
+
+typedef enum {
+
+    // single-character tokens
+
+    TOKEN_LEFT_PAREN,
+    TOKEN_RIGHT_PAREN,
+    TOKEN_LEFT_BRACE,
+    TOKEN_RIGHT_BRACE,
+    TOKEN_COMMA,
+    TOKEN_DOT,
+    TOKEN_MINUS,
+    TOKEN_PLUS,
+    TOKEN_SEMICOLON,
+    TOKEN_SLASH,
+    TOKEN_STAR,
+    TOKEN_PERCENT,
+
+    // one or two character tokens
+
+    TOKEN_BANG,
+    TOKEN_BANG_EQUAL,
+    TOKEN_EQUAL,
+    TOKEN_EQUAL_EQUAL,
+    TOKEN_GREATER,
+    TOKEN_GREATER_EQUAL,
+    TOKEN_LESS,
+    TOKEN_LESS_EQUAL,
+
+    // literals
+
+    TOKEN_IDENTIFIER,
+    TOKEN_STRING,
+    TOKEN_NUMBER,
+
+    // keywords
+
+    TOKEN_AND,
+    TOKEN_CLASS,
+    TOKEN_ELSE,
+    TOKEN_FALSE,
+    TOKEN_IMPL,
+    TOKEN_FOR,
+    TOKEN_IF,
+    TOKEN_IF_NOT,
+    TOKEN_VOID,
+    TOKEN_OR,
+    TOKEN_PRINT,
+    TOKEN_RETURN,
+    TOKEN_TRUE,
+    TOKEN_LET,
+    TOKEN_WHILE,
+    TOKEN_DO,
+    TOKEN_DEFINE,
+    TOKEN_INCLUDE,
+    TOKEN_IFNDEF,
+    TOKEN_IFDEF,
+    TOKEN_ENDIF,
+    TOKEN_LABEL,
+    TOKEN_JUMP,
+    TOKEN_SWITCH,
+    TOKEN_DEFAULT,
+    TOKEN_CASE,
+    TOKEN_BREAK,
+    TOKEN_PASS,
+    TOKEN_CONTINUE,
+
+    TOKEN_ERROR,
+    
+    TOKEN_EOF
+
+} TokenType;
+
+#endif  
