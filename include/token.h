@@ -23,7 +23,7 @@ typedef enum
     TOKEN_COLON,
     TOKEN_AT,
 
-        // one or two character tokens
+    // one or two character tokens
 
     TOKEN_BANG,
     TOKEN_BANG_EQUAL,
@@ -35,6 +35,7 @@ typedef enum
     TOKEN_LESS_EQUAL,
     TOKEN_PLUS_PLUS,
     TOKEN_MINUS_MINUS,
+    TOKEN_ARROW,
 
     // literals
 
@@ -83,4 +84,4 @@ typedef enum
 
 } TokenType;
 
-#endif  
+#endif

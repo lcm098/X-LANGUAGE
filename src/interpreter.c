@@ -564,6 +564,100 @@ static Value evaluate(Expr *expr)
         }
         return result;
     }
+
+    case EXPR_CALL:
+    {
+        Value callee = evaluate(expr->call.callee);
+        if (callee.type != VAL_FUNCTION)
+        {
+            printf("Runtime Error: Can only call functions.\n");
+            return voidVal();
+        }
+
+        int paramCount = callee.function.paramCount;
+
+        // Init args with defaults (or void)
+        Value *args = malloc(sizeof(Value) * (paramCount > 0 ? paramCount : 1));
+        for (int i = 0; i < paramCount; i++)
+            args[i] = callee.function.defaults[i] != NULL
+                          ? evaluate(callee.function.defaults[i])
+                          : voidVal();
+
+        // Fill provided args: named matched by name, positional by index
+        for (int i = 0; i < expr->call.argCount; i++)
+        {
+            if (expr->call.argNames[i] != NULL)
+            {
+                for (int j = 0; j < paramCount; j++)
+                {
+                    char *pname = tokenName(callee.function.params[j]);
+                    if (strcmp(pname, expr->call.argNames[i]) == 0)
+                    {
+                        args[j] = evaluate(expr->call.argValues[i]);
+                        free(pname);
+                        break;
+                    }
+                    free(pname);
+                }
+            }
+            else if (i < paramCount)
+            {
+                args[i] = evaluate(expr->call.argValues[i]);
+            }
+        }
+
+        /* Heap-allocate the call environment so that any closure created
+           inside this function body can safely outlive this call frame.
+           The enclosing parent is the *captured* closure env — not globals —
+           which gives lexical (not dynamic) scoping.                        */
+        Environment *funcEnv = malloc(sizeof(Environment));
+        initEnvironment(funcEnv, callee.function.closure);
+        for (int i = 0; i < paramCount; i++)
+        {
+            char *pname = tokenName(callee.function.params[i]);
+            defineVariable(funcEnv, pname, args[i]);
+            free(pname);
+        }
+        free(args);
+
+        // Execute body, isolating the hasReturnValue flag
+        Environment *prevEnv = environment;
+        int prevHas = hasReturnValue;
+        environment = funcEnv;
+        hasReturnValue = 0;
+
+        /* Execute body directly in funcEnv rather than via execute(STMT_BLOCK),
+           which would push a second stack-allocated env on top.  If a lambda
+           is created inside the body, it will capture funcEnv (heap) as its
+           closure — not a short-lived stack frame that dies on return.       */
+        Stmt *fnBody = callee.function.body;
+        if (fnBody->type == STMT_BLOCK)
+            executeBlock(fnBody->block.statements, fnBody->block.count, funcEnv);
+        else
+            execute(fnBody);
+
+        environment = prevEnv;
+        Value result = hasReturnValue ? returnValue : voidVal();
+        hasReturnValue = prevHas; // restore outer return state (nested calls)
+        /* funcEnv is intentionally NOT freed: it may be the closure of a
+           function value returned from here and must remain alive.          */
+        return result;
+    }
+
+    /* Anonymous function expression:  impl(params) -> { body }
+       Captures the current environment as its closure — identical semantics
+       to a named 'impl' declaration, just without binding a name.           */
+    case EXPR_LAMBDA:
+    {
+        Value func;
+        func.type = VAL_FUNCTION;
+        func.function.params = expr->lambda.params;
+        func.function.defaults = expr->lambda.defaults;
+        func.function.paramCount = expr->lambda.paramCount;
+        func.function.body = expr->lambda.body;
+        func.function.closure = environment; // capture lexical scope
+        return func;
+    }
     }
 
     return voidVal();
@@ -606,6 +700,10 @@ static void printValue(Value value)
             printValue(value.hashmap.values[i]);
         }
         printf("}");
+        break;
+
+    case VAL_FUNCTION:
+        printf("<function(%d)>", value.function.paramCount);
         break;
     }
 }
@@ -680,7 +778,7 @@ static void execute(Stmt *stmt)
 
     case STMT_WHILE:
     {
-        while (isTruthy(evaluate(stmt->whileStmt.condition)))
+        while (!hasReturnValue && isTruthy(evaluate(stmt->whileStmt.condition)))
         {
             execute(stmt->whileStmt.body);
         }
@@ -712,16 +810,34 @@ static void execute(Stmt *stmt)
             execute(stmt->forStmt.initializer);
 
         // A NULL condition means the loop runs forever (like C's bare 'for(;;)').
-        while (stmt->forStmt.condition == NULL ||
-               isTruthy(evaluate(stmt->forStmt.condition)))
+        while (!hasReturnValue && (stmt->forStmt.condition == NULL ||
+                                   isTruthy(evaluate(stmt->forStmt.condition))))
         {
             execute(stmt->forStmt.body);
 
-            if (stmt->forStmt.increment != NULL)
+            if (!hasReturnValue && stmt->forStmt.increment != NULL)
                 evaluate(stmt->forStmt.increment);
         }
 
         environment = saved;
+        break;
+    }
+
+    case STMT_FUNCTION:
+    {
+        Value func;
+        func.type = VAL_FUNCTION;
+        func.function.params = stmt->function.params;
+        func.function.defaults = stmt->function.defaults;
+        func.function.paramCount = stmt->function.paramCount;
+        func.function.body = stmt->function.body;
+        /* Capture the lexical environment at definition time — this is what
+           makes named functions work as closures, just like JS 'function' decls. */
+        func.function.closure = environment;
+
+        char *name = tokenName(stmt->function.name);
+        defineVariable(environment, name, func);
+        free(name);
         break;
     }
 

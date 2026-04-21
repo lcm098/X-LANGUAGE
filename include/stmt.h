@@ -1,7 +1,9 @@
 #ifndef X_STMT_H
 #define X_STMT_H
 
-#include "expr.h"
+/* Forward declaration breaks the stmt.h ↔ expr.h circular include. */
+typedef struct Expr Expr;
+#include "token_struct.h"
 
 typedef enum
 {
@@ -17,6 +19,7 @@ typedef enum
     STMT_PASS,
     STMT_FOR,
     STMT_RETURN,
+    STMT_FUNCTION
 
 } StmtType;
 
@@ -30,9 +33,18 @@ typedef struct Stmt
 
         struct
         {
+            Token name;
+            Token *params;
+            Expr **defaults;
+            int paramCount;
+            struct Stmt *body;
+        } function;
+
+        struct
+        {
             Expr *value; /* NULL = bare 'return;' */
         } returnStmt;
-        
+
         struct
         {
             struct Stmt *initializer; /* NULL = no init clause  */

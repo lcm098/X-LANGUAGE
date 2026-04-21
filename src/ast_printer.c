@@ -143,5 +143,43 @@ void printExpr(Expr* expr)
             printExpr(expr->logical.right);
             printf(")");
             break;
-    }
+
+        case EXPR_BLOCK:
+            printf("(block");
+            for (int i = 0; i < expr->block.count; i++)
+            {
+                printf(" stmt%d", i);
+            }
+            printf(")");
+            break;
+
+        case EXPR_CALL:
+        {
+            printf("(call ");
+            printExpr(expr->call.callee);
+            for (int i = 0; i < expr->call.argCount; i++)
+            {
+                printf(" ");
+                if (expr->call.argNames[i])
+                    printf("%s=", expr->call.argNames[i]);
+                printExpr((Expr *)expr->call.argValues[i]);
+            }
+            printf(")");
+            break;
+        }
+
+        case EXPR_LAMBDA:
+        {
+            printf("(lambda (");
+            for (int i = 0; i < expr->lambda.paramCount; i++)
+            {
+                if (i > 0)
+                    printf(", ");
+                printf("%.*s", expr->lambda.params[i].length,
+                       expr->lambda.params[i].start);
+            }
+            printf(") ...)");
+            break;
+        }
+        }
 }

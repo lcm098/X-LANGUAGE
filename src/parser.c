@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include "../include/common.h"
 #include "../include/parser.h"
 #include "../include/scanner.h"
@@ -25,7 +26,6 @@ static MacroDef *findMacro(const char *name)
     return NULL;
 }
 
-
 static Expr *expression();
 static Expr *assignment();
 static Expr *logic_or();
@@ -45,6 +45,9 @@ static bool isAtEnd();
 static Stmt *macroDefinition();
 static Stmt *returnStatement();
 static Expr *macroInvocationExpr();
+static Stmt *ifdefStatement();
+static Stmt *ifndefStatement();
+static Stmt *functionDeclaration();
 
 static Token current;
 static Token previous;
@@ -71,7 +74,7 @@ static bool match(TokenType type)
 
 static void error(const char *message)
 {
-    printf("Parser error: %s\n", message);
+    printf("Parser error [line %d]: %s\n", current.line, message);
     exit(1);
 }
 
@@ -122,7 +125,50 @@ static Expr *postfix()
 
     for (;;)
     {
-        if (match(TOKEN_LEFT_BRACKET))
+        if (match(TOKEN_LEFT_PAREN))
+        {
+            // Call: callee(arg1, name=arg2, ...)
+            // Parse each arg as expression(); if it comes back EXPR_ASSIGN treat as named arg
+            char **argNames = NULL;
+            Expr **argValues = NULL;
+            int argCount = 0;
+
+            if (!check(TOKEN_RIGHT_PAREN))
+            {
+                do
+                {
+                    argNames = realloc(argNames, sizeof(char *) * (argCount + 1));
+                    argValues = realloc(argValues, sizeof(Expr *) * (argCount + 1));
+                    argNames[argCount] = NULL;
+
+                    Expr *arg = expression();
+                    if (arg->type == EXPR_ASSIGN)
+                    {
+                        Token t = arg->assign.name;
+                        char *n = malloc(t.length + 1);
+                        memcpy(n, t.start, t.length);
+                        n[t.length] = '\0';
+                        argNames[argCount] = n;
+                        argValues[argCount] = arg->assign.value;
+                    }
+                    else
+                    {
+                        argValues[argCount] = arg;
+                    }
+                    argCount++;
+                } while (match(TOKEN_COMMA));
+            }
+            consume(TOKEN_RIGHT_PAREN, "Expect ')' after arguments.");
+
+            Expr *call = malloc(sizeof(Expr));
+            call->type = EXPR_CALL;
+            call->call.callee = expr;
+            call->call.argNames = argNames;
+            call->call.argValues = (struct Expr **)argValues;
+            call->call.argCount = argCount;
+            expr = call;
+        }
+        else if (match(TOKEN_LEFT_BRACKET))
         {
             Expr *index = expression();
             consume(TOKEN_RIGHT_BRACKET, "Expect ']' after index.");
@@ -371,6 +417,50 @@ static Expr *primary()
 
     if (match(TOKEN_AT))
         return macroInvocationExpr();
+
+    /* Anonymous closure:  impl(params) -> { body }
+       When TOKEN_IMPL appears in an expression position it must be anonymous
+       (no name follows the keyword).  Named 'impl' is only valid as a
+       statement and is handled in statement() before reaching here.         */
+    if (match(TOKEN_IMPL))
+    {
+        if (!check(TOKEN_LEFT_PAREN))
+            error("Expected '(' after 'impl' in expression. "
+                  "Named functions must be statements, not expressions.");
+
+        consume(TOKEN_LEFT_PAREN, "Expect '(' after 'impl'.");
+
+        Token *params = NULL;
+        Expr **defaults = NULL;
+        int paramCount = 0;
+
+        if (!check(TOKEN_RIGHT_PAREN))
+        {
+            do
+            {
+                params = realloc(params, sizeof(Token) * (paramCount + 1));
+                defaults = realloc(defaults, sizeof(Expr *) * (paramCount + 1));
+                params[paramCount] = consume(TOKEN_IDENTIFIER, "Expect parameter name.");
+                defaults[paramCount] = NULL;
+                if (match(TOKEN_EQUAL))
+                    defaults[paramCount] = expression();
+                paramCount++;
+            } while (match(TOKEN_COMMA));
+        }
+
+        consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+        consume(TOKEN_ARROW, "Expect '->' before lambda body.");
+        consume(TOKEN_LEFT_BRACE, "Expect '{' before lambda body.");
+        Stmt *body = block();
+
+        Expr *lam = malloc(sizeof(Expr));
+        lam->type = EXPR_LAMBDA;
+        lam->lambda.params = params;
+        lam->lambda.defaults = defaults;
+        lam->lambda.paramCount = paramCount;
+        lam->lambda.body = body;
+        return lam;
+    }
 
     error("Expect expression.");
     return NULL;
@@ -775,6 +865,122 @@ static Expr *macroInvocationExpr()
     return expr;
 }
 
+// KEY: findMacro() is called BEFORE the body is parsed.
+// This captures the exact macro table state at the moment the directive
+// is encountered — so #ifndef and #ifdef always reflect the right snapshot.
+
+static Stmt *ifdefStatement()
+{
+    Token nameToken = consume(TOKEN_IDENTIFIER, "Expect macro name after '#ifdef'.");
+    char macroName[64];
+    int nameLen = nameToken.length < 63 ? nameToken.length : 63;
+    memcpy(macroName, nameToken.start, nameLen);
+    macroName[nameLen] = '\0';
+
+    // ← snapshot the condition BEFORE parsing the body
+    int defined = (findMacro(macroName) != NULL);
+
+    consume(TOKEN_LEFT_BRACKET, "Expect '[' after macro name in '#ifdef'.");
+    Stmt **statements = NULL;
+    int count = 0;
+    while (!check(TOKEN_RIGHT_BRACKET) && !isAtEnd())
+    {
+        statements = realloc(statements, sizeof(Stmt *) * (count + 1));
+        statements[count++] = statement();
+    }
+    consume(TOKEN_RIGHT_BRACKET, "Expect ']' after '#ifdef' body.");
+
+    if (defined)
+    {
+        Stmt *stmt = malloc(sizeof(Stmt));
+        stmt->type = STMT_BLOCK;
+        stmt->block.statements = statements;
+        stmt->block.count = count;
+        return stmt;
+    }
+
+    free(statements);
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_PASS;
+    return stmt;
+}
+
+static Stmt *ifndefStatement()
+{
+    Token nameToken = consume(TOKEN_IDENTIFIER, "Expect macro name after '#ifndef'.");
+    char macroName[64];
+    int nameLen = nameToken.length < 63 ? nameToken.length : 63;
+    memcpy(macroName, nameToken.start, nameLen);
+    macroName[nameLen] = '\0';
+
+    // ← snapshot the condition BEFORE parsing the body
+    int notDefined = (findMacro(macroName) == NULL);
+
+    consume(TOKEN_LEFT_BRACKET, "Expect '[' after macro name in '#ifndef'.");
+    Stmt **statements = NULL;
+    int count = 0;
+    while (!check(TOKEN_RIGHT_BRACKET) && !isAtEnd())
+    {
+        statements = realloc(statements, sizeof(Stmt *) * (count + 1));
+        statements[count++] = statement();
+    }
+    consume(TOKEN_RIGHT_BRACKET, "Expect ']' after '#ifndef' body.");
+
+    if (notDefined)
+    {
+        Stmt *stmt = malloc(sizeof(Stmt));
+        stmt->type = STMT_BLOCK;
+        stmt->block.statements = statements;
+        stmt->block.count = count;
+        return stmt;
+    }
+
+    free(statements);
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_PASS;
+    return stmt;
+}
+
+// impl name(param1, param2 = default, ...) -> { body }
+static Stmt *functionDeclaration()
+{
+    Token name = consume(TOKEN_IDENTIFIER, "Expect function name after 'impl'.");
+    consume(TOKEN_LEFT_PAREN, "Expect '(' after function name.");
+
+    Token *params = NULL;
+    Expr **defaults = NULL;
+    int paramCount = 0;
+
+    if (!check(TOKEN_RIGHT_PAREN))
+    {
+        do
+        {
+            params = realloc(params, sizeof(Token) * (paramCount + 1));
+            defaults = realloc(defaults, sizeof(Expr *) * (paramCount + 1));
+            params[paramCount] = consume(TOKEN_IDENTIFIER, "Expect parameter name.");
+            defaults[paramCount] = NULL;
+            if (match(TOKEN_EQUAL))
+                defaults[paramCount] = expression();
+            paramCount++;
+        } while (match(TOKEN_COMMA));
+    }
+
+    consume(TOKEN_RIGHT_PAREN, "Expect ')' after parameters.");
+    consume(TOKEN_ARROW, "Expect '->' before function body.");
+    consume(TOKEN_LEFT_BRACE, "Expect '{' before function body.");
+
+    Stmt *body = block();
+
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_FUNCTION;
+    stmt->function.name = name;
+    stmt->function.params = params;
+    stmt->function.defaults = defaults;
+    stmt->function.paramCount = paramCount;
+    stmt->function.body = body;
+    return stmt;
+}
+
 static Stmt *statement()
 {
     if (match(TOKEN_PRINT))
@@ -807,8 +1013,17 @@ static Stmt *statement()
     if (match(TOKEN_DEFINE))
         return macroDefinition();
 
+    if (match(TOKEN_IFDEF))
+        return ifdefStatement();
+
+    if (match(TOKEN_IFNDEF))
+        return ifndefStatement();
+
     if (match(TOKEN_RETURN))
         return returnStatement();
+
+    if (match(TOKEN_IMPL))
+        return functionDeclaration();
 
     return expressionStatement();
 }

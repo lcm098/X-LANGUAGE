@@ -205,7 +205,7 @@ static TokenType identifierType()
                 if (scanner.start[2] == 'd')
                     return checkKeyword(3, 2, "ef", TOKEN_IFDEF);
                 if (scanner.start[2] == 'n')
-                    return checkKeyword(3, 4, "def", TOKEN_IFNDEF);
+                    return checkKeyword(3, 3, "def", TOKEN_IFNDEF);
                 break;
             case 'm':
                 return checkKeyword(2, 2, "pl", TOKEN_IMPL);
@@ -405,7 +405,11 @@ Token scanToken()
     case '+':
         return match('+') ? makeToken(TOKEN_PLUS_PLUS) : makeToken(TOKEN_PLUS);
     case '-':
-        return match('-') ? makeToken(TOKEN_MINUS_MINUS) : makeToken(TOKEN_MINUS);
+        if (match('-'))
+            return makeToken(TOKEN_MINUS_MINUS);
+        if (match('>'))
+            return makeToken(TOKEN_ARROW);
+        return makeToken(TOKEN_MINUS);
     case '/':
         return makeToken(TOKEN_SLASH);
     case '*':
