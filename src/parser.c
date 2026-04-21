@@ -94,13 +94,25 @@ static Expr* binaryExpr(Expr* left,
 static Expr* postfix() {
     Expr* expr = primary();
 
-    if (expr->type == EXPR_VARIABLE &&
-        (match(TOKEN_PLUS_PLUS) || match(TOKEN_MINUS_MINUS))) {
-        Expr* post = malloc(sizeof(Expr));
-        post->type = EXPR_POSTFIX;
-        post->postfix.operator = previous;
-        post->postfix.name = expr->variable.name;
-        return post;
+    for (;;) {
+        if (match(TOKEN_LEFT_BRACKET)) {
+            Expr* index = expression();
+            consume(TOKEN_RIGHT_BRACKET, "Expect ']' after index.");
+            Expr* e = malloc(sizeof(Expr));
+            e->type = EXPR_INDEX;
+            e->index_expr.object = expr;
+            e->index_expr.index  = index;
+            expr = e;
+        } else if (expr->type == EXPR_VARIABLE &&
+                   (match(TOKEN_PLUS_PLUS) || match(TOKEN_MINUS_MINUS))) {
+            Expr* post = malloc(sizeof(Expr));
+            post->type = EXPR_POSTFIX;
+            post->postfix.operator = previous;
+            post->postfix.name = expr->variable.name;
+            return post;
+        } else {
+            break;
+        }
     }
     return expr;
 }
@@ -237,6 +249,56 @@ static Expr* primary()
         return ExpressionVarDeclaration();
     }
 
+    if (match(TOKEN_VECTOR)) {
+        consume(TOKEN_LEFT_BRACKET, "Expect '[' after 'vector'.");
+        
+        struct Expr** items = NULL;
+        int count = 0;
+
+        if (!check(TOKEN_RIGHT_BRACKET)) {
+            do {
+                items = realloc(items, sizeof(Expr*) * (count + 1));
+                items[count++] = expression();
+            } while (match(TOKEN_COMMA));
+        }
+
+        consume(TOKEN_RIGHT_BRACKET, "Expect ']' after vector items.");
+
+        Expr* expr = malloc(sizeof(Expr));
+        expr->type = EXPR_VECTOR;
+        expr->vec.items = items;
+        expr->vec.count = count;
+        return expr;
+    }
+    
+    if (match(TOKEN_HASHMAP)) {
+        consume(TOKEN_LEFT_BRACE, "Expect '{' after 'hashmap'.");
+
+        Expr** keys   = NULL;
+        Expr** values = NULL;
+        int count = 0;
+
+        if (!check(TOKEN_RIGHT_BRACE)) {
+            do {
+                keys   = realloc(keys,   sizeof(Expr*) * (count + 1));
+                values = realloc(values, sizeof(Expr*) * (count + 1));
+                keys[count]   = expression();
+                consume(TOKEN_COLON, "Expect ':' after key.");
+                values[count] = expression();
+                count++;
+            } while (match(TOKEN_COMMA));
+        }
+
+        consume(TOKEN_RIGHT_BRACE, "Expect '}' after hashmap entries.");
+
+        Expr* expr = malloc(sizeof(Expr));
+        expr->type = EXPR_HASHMAP;
+        expr->hashmap.keys   = keys;
+        expr->hashmap.values = values;
+        expr->hashmap.count  = count;
+        return expr;
+    }
+
     error("Expect expression.");
     return NULL;
 }
@@ -266,6 +328,16 @@ static Expr* assignment() {
             assign->assign.value = value;
             return assign;
         }
+
+        if (expr->type == EXPR_INDEX) {
+            Expr* assign = malloc(sizeof(Expr));
+            assign->type = EXPR_INDEX_ASSIGN;
+            assign->index_assign.object = expr->index_expr.object;
+            assign->index_assign.index  = expr->index_expr.index;
+            assign->index_assign.value  = value;
+            return assign;
+        }
+
         printf("Invalid assignment target.\n");
     }
     return expr;

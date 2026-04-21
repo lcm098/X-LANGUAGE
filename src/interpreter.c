@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -184,6 +185,35 @@ static Value evalBinary(Expr* expr) {
     }
 }
 
+static Value indexGet(Value object, Value key) {
+    if (object.type == VAL_VECTOR) {
+        if (key.type != VAL_NUMBER) {
+            printf("Runtime Error: Vector index must be a number.\n");
+            return voidVal();
+        }
+        int i = (int)key.number;
+        if (i < 0 || i >= object.vector.count) {
+            printf("Runtime Error: Vector index %d out of bounds.\n", i);
+            return voidVal();
+        }
+        return object.vector.items[i];
+    }
+    if (object.type == VAL_HASHMAP) {
+        if (key.type != VAL_STRING) {
+            printf("Runtime Error: Hashmap key must be a string.\n");
+            return voidVal();
+        }
+        for (int i = 0; i < object.hashmap.count; i++) {
+            if (strcmp(object.hashmap.keys[i], key.string) == 0)
+                return object.hashmap.values[i];
+        }
+        printf("Runtime Error: Key '%s' not found.\n", key.string);
+        return voidVal();
+    }
+    printf("Runtime Error: Value is not indexable.\n");
+    return voidVal();
+}
+
 // The core recursive visitor for the expression tree
 static Value evaluate(Expr* expr) {
     if (expr == NULL) return voidVal();
@@ -236,6 +266,151 @@ static Value evaluate(Expr* expr) {
             free(name);
             return old; // returns original value
         }
+
+        case EXPR_VECTOR: {
+            Value v;
+            v.type = VAL_VECTOR;
+            v.vector.count    = expr->vec.count;
+            v.vector.capacity = expr->vec.count;
+            v.vector.items    = malloc(sizeof(Value) * expr->vec.count);
+            for (int i = 0; i < expr->vec.count; i++)
+                v.vector.items[i] = evaluate(expr->vec.items[i]);
+            return v;
+        }
+
+        case EXPR_HASHMAP: {
+            Value v;
+            v.type = VAL_HASHMAP;
+            v.hashmap.count    = expr->hashmap.count;
+            v.hashmap.capacity = expr->hashmap.count;
+            v.hashmap.keys     = malloc(sizeof(char*)  * expr->hashmap.count);
+            v.hashmap.values   = malloc(sizeof(Value)  * expr->hashmap.count);
+            for (int i = 0; i < expr->hashmap.count; i++) {
+                Value key = evaluate(expr->hashmap.keys[i]);
+                if (key.type != VAL_STRING) {
+                    printf("Runtime Error: Hashmap keys must be strings.\n");
+                    return voidVal();
+                }
+                v.hashmap.keys[i]   = key.string;
+                v.hashmap.values[i] = evaluate(expr->hashmap.values[i]);
+            }
+            return v;
+        }
+
+        case EXPR_INDEX: {
+            Value object = evaluate(expr->index_expr.object);
+            Value key    = evaluate(expr->index_expr.index);
+            return indexGet(object, key);
+        }
+
+        case EXPR_INDEX_ASSIGN: {
+            Expr* obj = expr->index_assign.object;
+
+            Expr* root = obj;
+            while (root->type == EXPR_INDEX) root = root->index_expr.object;
+            if (root->type != EXPR_VARIABLE) {
+                printf("Runtime Error: Invalid assignment target.\n");
+                return voidVal();
+            }
+            char* rootName = tokenName(root->variable.name);
+            Value container = getVariable(environment, rootName);
+
+            
+            Expr* indexChain[64];
+            int   chainLen = 0;
+            Expr* cur = expr->index_assign.object;
+            // push the final index
+            indexChain[chainLen++] = expr->index_assign.index;
+            // walk up collecting intermediate indices
+            while (cur->type == EXPR_INDEX) {
+                indexChain[chainLen++] = cur->index_expr.index;
+                cur = cur->index_expr.object;
+            }
+            // indexChain is now in reverse order (innermost first), reverse it
+            for (int i = 0, j = chainLen - 1; i < j; i++, j--) {
+                Expr* tmp = indexChain[i];
+                indexChain[i] = indexChain[j];
+                indexChain[j] = tmp;
+            }
+
+            
+            // We need to work with pointers into the actual stored arrays
+            // Re-fetch a mutable reference by walking the live data
+            Value newValue = evaluate(expr->index_assign.value);
+
+            // For single-level: just set directly on the fetched container
+            if (chainLen == 1) {
+                Value key = evaluate(indexChain[0]);
+                if (container.type == VAL_VECTOR) {
+                    int i = (int)key.number;
+                    if (i < 0 || i >= container.vector.count) {
+                        printf("Runtime Error: Index %d out of bounds.\n", i);
+                        free(rootName); return voidVal();
+                    }
+                    container.vector.items[i] = newValue;
+                } else if (container.type == VAL_HASHMAP) {
+                    int found = 0;
+                    for (int i = 0; i < container.hashmap.count; i++) {
+                        if (strcmp(container.hashmap.keys[i], key.string) == 0) {
+                            container.hashmap.values[i] = newValue;
+                            found = 1; break;
+                        }
+                    }
+                    if (!found) {
+                        // Insert new key
+                        int c = container.hashmap.count;
+                        container.hashmap.keys   = realloc(container.hashmap.keys,   sizeof(char*)  * (c + 1));
+                        container.hashmap.values = realloc(container.hashmap.values, sizeof(Value)  * (c + 1));
+                        container.hashmap.keys[c]   = strdup(key.string);
+                        container.hashmap.values[c] = newValue;
+                        container.hashmap.count++;
+                    }
+                }
+                assignVariable(environment, rootName, container);
+                free(rootName);
+                return newValue;
+            }
+
+            Value* target = &container;
+            for (int i = 0; i < chainLen - 1; i++) {
+                Value key = evaluate(indexChain[i]);
+                if (target->type == VAL_VECTOR)
+                    target = &target->vector.items[(int)key.number];
+                else if (target->type == VAL_HASHMAP) {
+                    int found = 0;
+                    for (int j = 0; j < target->hashmap.count; j++) {
+                        if (strcmp(target->hashmap.keys[j], key.string) == 0) {
+                            target = &target->hashmap.values[j];
+                            found = 1; break;
+                        }
+                    }
+                    if (!found) { printf("Runtime Error: Key not found.\n"); free(rootName); return voidVal(); }
+                }
+            }
+            Value lastKey = evaluate(indexChain[chainLen - 1]);
+            if (target->type == VAL_VECTOR)
+                target->vector.items[(int)lastKey.number] = newValue;
+            else if (target->type == VAL_HASHMAP) {
+                int found = 0;
+                for (int i = 0; i < target->hashmap.count; i++) {
+                    if (strcmp(target->hashmap.keys[i], lastKey.string) == 0) {
+                        target->hashmap.values[i] = newValue;
+                        found = 1; break;
+                    }
+                }
+                if (!found) {
+                    int c = target->hashmap.count;
+                    target->hashmap.keys   = realloc(target->hashmap.keys,   sizeof(char*)  * (c + 1));
+                    target->hashmap.values = realloc(target->hashmap.values, sizeof(Value)  * (c + 1));
+                    target->hashmap.keys[c]   = strdup(lastKey.string);
+                    target->hashmap.values[c] = newValue;
+                    target->hashmap.count++;
+                }
+            }
+            assignVariable(environment, rootName, container);
+            free(rootName);
+            return newValue;
+        }
     }
 
     return voidVal();
@@ -255,6 +430,25 @@ static void printValue(Value value) {
         case VAL_VOID:
             printf("void");
             break;
+        case VAL_VECTOR:
+            printf("[");
+            for (int i = 0; i < value.vector.count; i++) {
+                if (i > 0) printf(", ");
+                printValue(value.vector.items[i]);
+            }
+            printf("]");
+            break;
+
+        case VAL_HASHMAP:
+            printf("{");
+            for (int i = 0; i < value.hashmap.count; i++) {
+                if (i > 0) printf(", ");
+                printf("\"%s\": ", value.hashmap.keys[i]);
+                printValue(value.hashmap.values[i]);
+            }
+            printf("}");
+            break;
+
     }
 }
 

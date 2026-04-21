@@ -217,12 +217,13 @@ static TokenType identifierType()
         case 'v':
             if (scanner.current - scanner.start > 1) {
                 switch (scanner.start[1]) {
-                    case 'a': return checkKeyword(2, 1, "r", TOKEN_VAR);
-                    case 'o': return checkKeyword(2, 2, "id", TOKEN_VOID);
+                    case 'a': return checkKeyword(2, 1, "r",    TOKEN_VAR);
+                    case 'o': return checkKeyword(2, 2, "id",   TOKEN_VOID);
+                    case 'e': return checkKeyword(2, 4, "ctor", TOKEN_VECTOR);
                 }
             }
             break;
-
+        case 'h': return checkKeyword(1, 6, "ashmap", TOKEN_HASHMAP);
         case 'w': return checkKeyword(1, 4, "hile", TOKEN_WHILE);
     }
 
@@ -331,7 +332,9 @@ Token scanToken()
         case ';': return makeToken(TOKEN_SEMICOLON);
         case ',': return makeToken(TOKEN_COMMA);
         case '.': return makeToken(TOKEN_DOT);
-
+        case ']': return makeToken(TOKEN_RIGHT_BRACKET);
+        case '[': return makeToken(TOKEN_LEFT_BRACKET);
+        case ':': return makeToken(TOKEN_COLON);
         case '+': return match('+') ? makeToken(TOKEN_PLUS_PLUS)  : makeToken(TOKEN_PLUS);
         case '-': return match('-') ? makeToken(TOKEN_MINUS_MINUS) : makeToken(TOKEN_MINUS);
         case '/': return makeToken(TOKEN_SLASH);

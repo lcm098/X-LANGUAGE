@@ -12,6 +12,11 @@ typedef enum {
     EXPR_VAR,
     EXPR_PREFIX,
     EXPR_POSTFIX,
+    EXPR_VECTOR,
+    EXPR_HASHMAP,
+    EXPR_INDEX,
+    EXPR_INDEX_ASSIGN,
+
 
 } ExprType;
 
@@ -62,6 +67,28 @@ typedef struct Expr {
             Token operator;
             Token name;
         } postfix;
+
+        struct {
+            struct Expr** items;
+            int count;
+        } vec;
+
+        struct {
+            struct Expr** keys;
+            struct Expr** values;
+            int count;
+        } hashmap;
+
+        struct {
+            struct Expr* object;
+            struct Expr* index;
+        } index_expr;
+
+        struct {
+            struct Expr* object;
+            struct Expr* index;
+            struct Expr* value;
+        } index_assign;
     };
 } Expr;
 

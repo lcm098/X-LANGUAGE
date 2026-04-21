@@ -97,5 +97,43 @@ void printExpr(Expr* expr)
                 expr->postfix.operator.length, expr->postfix.operator.start);
             break;
 
+        case EXPR_VECTOR:
+            printf("(vector");
+            for (int i = 0; i < expr->vec.count; i++) {
+                printf(" ");
+                printExpr(expr->vec.items[i]);
+            }
+            printf(")");
+            break;
+
+        case EXPR_HASHMAP:
+            printf("(hashmap");
+            for (int i = 0; i < expr->hashmap.count; i++) {
+                printf(" (");
+                printExpr(expr->hashmap.keys[i]);
+                printf(": ");
+                printExpr(expr->hashmap.values[i]);
+                printf(")");
+            }
+            printf(")");
+            break;
+
+        case EXPR_INDEX:
+            printf("(index ");
+            printExpr(expr->index_expr.object);
+            printf(" ");
+            printExpr(expr->index_expr.index);
+            printf(")");
+            break;
+
+        case EXPR_INDEX_ASSIGN:
+            printf("(index-assign ");
+            printExpr(expr->index_assign.object);
+            printf(" ");
+            printExpr(expr->index_assign.index);
+            printf(" ");
+            printExpr(expr->index_assign.value);
+            printf(")");
+            break;
     }
 }

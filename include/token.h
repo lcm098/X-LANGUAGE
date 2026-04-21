@@ -17,6 +17,9 @@ typedef enum {
     TOKEN_SLASH,
     TOKEN_STAR,
     TOKEN_PERCENT,
+    TOKEN_LEFT_BRACKET,
+    TOKEN_RIGHT_BRACKET,
+    TOKEN_COLON,
 
     // one or two character tokens
 
@@ -69,6 +72,8 @@ typedef enum {
     TOKEN_PASS,
     TOKEN_CONTINUE,
     TOKEN_VAR,
+    TOKEN_VECTOR,
+    TOKEN_HASHMAP,
 
     TOKEN_ERROR,
     
