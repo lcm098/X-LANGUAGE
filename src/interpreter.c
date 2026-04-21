@@ -12,7 +12,10 @@ Environment *environment = &globals;
 static int hasReturnValue = 0;
 static Value returnValue;
 
-// FIX: 'execute()' calls 'executeBlock()' before its definition — forward-declare it
+// Global tracking for jump unwinding
+static int isJumping = 0;
+static char *jumpTarget = NULL;
+
 static void executeBlock(Stmt **statements, int count, Environment *newEnv);
 static void execute(Stmt *stmt);
 
@@ -544,7 +547,7 @@ static Value evaluate(Expr *expr)
         Value result = voidVal();
         int count = expr->block.count;
 
-        for (int i = 0; i < count && !hasReturnValue; i++)
+        for (int i = 0; i < count && !hasReturnValue && !isJumping; i++)
         {
             Stmt *s = (Stmt *)expr->block.statements[i];
             // Implicit return: last statement, if it's a bare expression, is the value
@@ -552,6 +555,30 @@ static Value evaluate(Expr *expr)
                 result = evaluate(s->expr.expression);
             else
                 execute(s);
+
+            // Intercept jumps to labels inside this expression block
+            if (isJumping && jumpTarget != NULL)
+            {
+                int found = -1;
+                for (int j = 0; j < count; j++)
+                {
+                    Stmt *sj = (Stmt *)expr->block.statements[j];
+                    if (sj->type == STMT_LABEL)
+                    {
+                        char *lname = tokenName(sj->labelStmt.name);
+                        if (strcmp(lname, jumpTarget) == 0)
+                            found = j;
+                        free(lname);
+                    }
+                }
+                if (found != -1)
+                {
+                    isJumping = 0;
+                    free(jumpTarget);
+                    jumpTarget = NULL;
+                    i = found - 1; // Loop i++ will restart us at the label
+                }
+            }
         }
 
         environment = saved;
@@ -636,6 +663,15 @@ static Value evaluate(Expr *expr)
         else
             execute(fnBody);
 
+        // Prevent jumping out of a function entirely
+        if (isJumping)
+        {
+            printf("Runtime Error: Cannot jump out of a function scope.\n");
+            isJumping = 0;
+            free(jumpTarget);
+            jumpTarget = NULL;
+        }
+
         environment = prevEnv;
         Value result = hasReturnValue ? returnValue : voidVal();
         hasReturnValue = prevHas; // restore outer return state (nested calls)
@@ -644,9 +680,7 @@ static Value evaluate(Expr *expr)
         return result;
     }
 
-    /* Anonymous function expression:  impl(params) -> { body }
-       Captures the current environment as its closure — identical semantics
-       to a named 'impl' declaration, just without binding a name.           */
+    
     case EXPR_LAMBDA:
     {
         Value func;
@@ -778,7 +812,7 @@ static void execute(Stmt *stmt)
 
     case STMT_WHILE:
     {
-        while (!hasReturnValue && isTruthy(evaluate(stmt->whileStmt.condition)))
+        while (!hasReturnValue && !isJumping && isTruthy(evaluate(stmt->whileStmt.condition)))
         {
             execute(stmt->whileStmt.body);
         }
@@ -788,7 +822,7 @@ static void execute(Stmt *stmt)
     case STMT_DO_WHILE:
     {
         execute(stmt->doWhileStmt.body);
-        while (isTruthy(evaluate(stmt->doWhileStmt.condition)))
+        while (!hasReturnValue && !isJumping && isTruthy(evaluate(stmt->doWhileStmt.condition)))
         {
             execute(stmt->doWhileStmt.body);
         }
@@ -810,12 +844,14 @@ static void execute(Stmt *stmt)
             execute(stmt->forStmt.initializer);
 
         // A NULL condition means the loop runs forever (like C's bare 'for(;;)').
-        while (!hasReturnValue && (stmt->forStmt.condition == NULL ||
-                                   isTruthy(evaluate(stmt->forStmt.condition))))
+        while (!hasReturnValue && !isJumping && (stmt->forStmt.condition == NULL || isTruthy(evaluate(stmt->forStmt.condition))))
         {
             execute(stmt->forStmt.body);
 
-            if (!hasReturnValue && stmt->forStmt.increment != NULL)
+            if (hasReturnValue || isJumping)
+                break;
+
+            if (stmt->forStmt.increment != NULL)
                 evaluate(stmt->forStmt.increment);
         }
 
@@ -847,6 +883,35 @@ static void execute(Stmt *stmt)
                           : voidVal();
         hasReturnValue = 1;
         break;
+
+    case STMT_JUMP:
+    {
+        isJumping = 1;
+        jumpTarget = tokenName(stmt->jumpStmt.name);
+        break;
+    }
+
+    case STMT_LABEL:
+    {
+        if (stmt->labelStmt.body != NULL)
+        {
+            char *lname = tokenName(stmt->labelStmt.name);
+        start_label_body:
+            execute(stmt->labelStmt.body);
+
+            // If the body itself triggered a jump targeting this exact label, catch it here
+            if (isJumping && jumpTarget != NULL && strcmp(jumpTarget, lname) == 0)
+            {
+                isJumping = 0;
+                free(jumpTarget);
+                jumpTarget = NULL;
+                goto start_label_body; // Re-execute body
+            }
+            free(lname);
+        }
+        // If body == NULL, we do nothing and let executeBlock advance to the next line.
+        break;
+    }
     }
 }
 
@@ -856,9 +921,33 @@ static void executeBlock(Stmt **statements, int count, Environment *newEnv)
     environment = newEnv;
     for (int i = 0; i < count; i++)
     {
-        if (hasReturnValue)
+        if (hasReturnValue || isJumping)
             break;
+
         execute(statements[i]);
+
+        if (isJumping && jumpTarget != NULL)
+        {
+            int found = -1;
+            for (int j = 0; j < count; j++)
+            {
+                if (statements[j]->type == STMT_LABEL)
+                {
+                    char *lname = tokenName(statements[j]->labelStmt.name);
+                    if (strcmp(lname, jumpTarget) == 0)
+                        found = j;
+                    free(lname);
+                }
+            }
+            if (found != -1)
+            {
+                // Label caught! Reset jump state and point 'i' to the label.
+                isJumping = 0;
+                free(jumpTarget);
+                jumpTarget = NULL;
+                i = found - 1; // Next loop iteration (i++) hits the label again
+            }
+        }
     }
     environment = previous;
 }

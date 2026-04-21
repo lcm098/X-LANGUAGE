@@ -19,7 +19,9 @@ typedef enum
     STMT_PASS,
     STMT_FOR,
     STMT_RETURN,
-    STMT_FUNCTION
+    STMT_FUNCTION,
+    STMT_LABEL,
+    STMT_JUMP
 
 } StmtType;
 
@@ -30,6 +32,17 @@ typedef struct Stmt
 
     union
     {
+
+        struct
+        {
+            Token name;
+            struct Stmt *body; /* NULL if it's just a bare label marker */
+        } labelStmt;
+
+        struct
+        {
+            Token name;
+        } jumpStmt;
 
         struct
         {

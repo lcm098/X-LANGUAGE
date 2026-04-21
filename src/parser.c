@@ -981,6 +981,52 @@ static Stmt *functionDeclaration()
     return stmt;
 }
 
+static Stmt *labelStatement()
+{
+    Token name = consume(TOKEN_IDENTIFIER, "Expect label name.");
+
+    Stmt *body = NULL;
+    if (match(TOKEN_LEFT_BRACKET))
+    {
+        Stmt **statements = NULL;
+        int count = 0;
+
+        while (!check(TOKEN_RIGHT_BRACKET) && !isAtEnd())
+        {
+            statements = realloc(statements, sizeof(Stmt *) * (count + 1));
+            statements[count++] = statement();
+        }
+        consume(TOKEN_RIGHT_BRACKET, "Expect ']' after label body.");
+
+        body = malloc(sizeof(Stmt));
+        body->type = STMT_BLOCK;
+        body->block.statements = statements;
+        body->block.count = count;
+    }
+    else
+    {
+        // Optional semicolon for bare labels
+        match(TOKEN_SEMICOLON);
+    }
+
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_LABEL;
+    stmt->labelStmt.name = name;
+    stmt->labelStmt.body = body;
+    return stmt;
+}
+
+static Stmt *jumpStatement()
+{
+    Token name = consume(TOKEN_IDENTIFIER, "Expect label name after 'jump'.");
+    match(TOKEN_SEMICOLON); // optional semicolon
+
+    Stmt *stmt = malloc(sizeof(Stmt));
+    stmt->type = STMT_JUMP;
+    stmt->jumpStmt.name = name;
+    return stmt;
+}
+
 static Stmt *statement()
 {
     if (match(TOKEN_PRINT))
@@ -1024,6 +1070,12 @@ static Stmt *statement()
 
     if (match(TOKEN_IMPL))
         return functionDeclaration();
+
+    if (match(TOKEN_LABEL))
+        return labelStatement();
+
+    if (match(TOKEN_JUMP))
+        return jumpStatement();
 
     return expressionStatement();
 }
